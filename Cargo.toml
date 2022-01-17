@@ -1,0 +1,21 @@
+[package]
+name = "wordlebot"
+version = "0.0.0"
+edition = "2021"
+description = "Solver for wordle like puzzles"
+license = "MIT"
+exclude = [".*","inputs/"]
+
+[dependencies]
+clap = "2.33.3"
+env_logger = "0.9.0"
+hashbrown = "0.11.2"
+itertools = "0.10.0"
+log = "0.4.14"
+rayon = "1.5.1"
+regex = "1.4.5"
+structopt = "0.3.21"
+
+[[bin]]
+name = "wordlebot"
+path = "src/wordlebot.rs"

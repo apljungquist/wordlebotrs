@@ -1,0 +1,2 @@
+inputs/*/input*.txt filter=lfs diff=lfs merge=lfs -text
+Cargo.lock filter=lfs diff=lfs merge=lfs -text
