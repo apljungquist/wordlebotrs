@@ -49,10 +49,22 @@ fn _entropy<T>(distribution: &HashMap<T, usize>) -> f64 {
         .sum::<f64>()
 }
 
+fn _min_surprise<T>(distribution: &HashMap<T, usize>) -> Option<f64> {
+    // This should work, right?
+    let denominator = f64::log2(distribution.values().sum::<usize>() as f64);
+    let numerator = distribution
+        .values()
+        .map(|v| f64::log2(*v as f64))
+        .max_by(|a, b| a.partial_cmp(b).unwrap())?;
+    Some(denominator - numerator)
+}
+
 #[derive(StructOpt)]
 pub struct Cli {
     guesses: String,
     answers: String,
+    #[structopt(long)]
+    adversarial: bool,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -70,10 +82,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|line| line.trim().chars().collect())
         .collect::<Vec<Vec<char>>>();
 
-    let expected_information: Vec<f64> = guesses
-        .par_iter()
-        .map(|guess| _entropy(&answers.iter().map(|answer| _score(guess, answer)).counts()))
-        .collect();
+    let expected_information: Vec<f64> = match args.adversarial {
+        false => guesses
+            .par_iter()
+            .map(|guess| _entropy(&answers.iter().map(|answer| _score(guess, answer)).counts()))
+            .collect(),
+        true => guesses
+            .par_iter()
+            .map(|guess| {
+                _min_surprise(&answers.iter().map(|answer| _score(guess, answer)).counts()).unwrap()
+            })
+            .collect(),
+    };
 
     let result: Vec<(Vec<char>, u64)> = guesses
         .into_iter()
