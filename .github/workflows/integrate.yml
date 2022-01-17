@@ -1,0 +1,30 @@
+name: Integrate
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  integrate:
+    runs-on: ubuntu-20.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          lfs: true
+      - name: Build
+        run: cargo build --verbose
+      - name: Check format
+        run: cargo fmt -- --check
+      - name: Check lint
+        run: cargo clippy
+      - name: Check tests
+        run: cargo test --verbose
+      - name: Check publish
+        run: cargo publish --dry-run
