@@ -15,7 +15,7 @@ In case of the adversarial game this is the minimum surprisal of seeing the scor
 When there are 3 or fewer possible answers left the bot moves to the exploitation phase.
 During the exploitation phase it will choose a guess as before but only among the possible answers remaining. 
 
-This strategy finds that the optimal starting word is serai, soare and tares for [absurdle](https://qntm.org/files/wordle/index.html), [wordle](https://www.powerlanguage.co.uk/wordle/) and [botfights](https://botfights.io/event/botfights_i) respectively.
+This strategy finds that optimal starting words include raise, soare and tares for [absurdle](https://qntm.org/files/wordle/index.html), [wordle](https://www.powerlanguage.co.uk/wordle/) and [botfights](https://botfights.io/event/botfights_i) respectively.
 
 [^1]: Implements only the first round i.e. finding an optimal starting word.
 [^2]: Implements strategies for both adversarial and honest games but only for 5 letter words.

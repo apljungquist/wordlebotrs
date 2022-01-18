@@ -67,15 +67,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let args = Cli::from_args();
 
-    let guesses = fs::read_to_string(args.guesses)
-        .unwrap()
-        .lines()
-        .map(|line| line.trim().chars().collect())
-        .collect::<Vec<Vec<char>>>();
     let answers = fs::read_to_string(args.answers)
         .unwrap()
         .lines()
         .map(|line| line.trim().chars().collect())
+        .collect::<Vec<Vec<char>>>();
+
+    let guesses = fs::read_to_string(args.guesses)
+        .unwrap()
+        .lines()
+        .map(|line| line.trim().chars().collect())
+        .chain(answers.clone())
         .collect::<Vec<Vec<char>>>();
 
     let expected_information: Vec<f64> = match args.adversarial {
