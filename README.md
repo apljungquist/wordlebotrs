@@ -1,6 +1,6 @@
 # WordleBot
 
-A bot that plays wordle[^1] games[^2].
+A bot that plays wordle games[^1].
 
 ## How it works
 
@@ -17,5 +17,4 @@ During the exploitation phase it will choose a guess as before but only among th
 
 This strategy finds that optimal starting words include raise, soare and tares for [absurdle](https://qntm.org/files/wordle/index.html), [wordle](https://www.powerlanguage.co.uk/wordle/) and [botfights](https://botfights.io/event/botfights_i) respectively.
 
-[^1]: Implements only the first round i.e. finding an optimal starting word.
-[^2]: Implements strategies for both adversarial and honest games but only for 5 letter words.
+[^1]: Implements strategies for both adversarial and honest games but only for 5 letter words.

@@ -1,30 +1,30 @@
-use rayon::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::{fs, iter};
 
 use itertools::Itertools;
+use rayon::prelude::*;
 use structopt::StructOpt;
 
-fn _score(guess: &[char], answer: &[char]) -> Vec<char> {
+fn _score(guess: &str, answer: &str) -> Vec<char> {
     let len = answer.len();
     assert_eq!(len, guess.len());
     assert_eq!(len, answer.len());
 
     let mut result: Vec<char> = iter::repeat('-').take(len).collect();
-    let mut remaining: Vec<char> = answer.to_vec();
+    let mut remaining: Vec<char> = answer.chars().collect();
 
-    for i in 0..len {
-        if guess[i] == answer[i] {
+    for (i, (g, a)) in guess.chars().zip(answer.chars()).enumerate() {
+        if g == a {
             result[i] = '3';
             remaining[i] = ' ';
         }
     }
 
-    for i in 0..len {
+    for (i, g) in guess.chars().enumerate() {
         if result[i] == '3' {
             continue;
         }
-        match remaining.iter().position(|v| v == &guess[i]) {
+        match remaining.iter().position(|v| *v == g) {
             Some(j) => {
                 result[i] = '2';
                 remaining[j] = ' ';
@@ -55,10 +55,77 @@ fn _min_surprise<T>(distribution: &HashMap<T, usize>) -> Option<f64> {
     Some(-f64::log2(numerator / denominator))
 }
 
+struct Constraint {
+    permitted: Vec<HashSet<char>>,
+}
+
+impl Constraint {
+    fn new() -> Constraint {
+        let mut permitted = Vec::with_capacity(5);
+        for _ in 0..5 {
+            permitted.push("abcdefghijklmnopqrstuvwxyz".chars().collect());
+        }
+        Constraint { permitted }
+    }
+
+    fn from_updates(updates: &str) -> Constraint {
+        let mut result = Constraint::new();
+        if updates.is_empty() {
+            return result;
+        }
+        for update in updates.split(',') {
+            let update = update.split(':').collect::<Vec<&str>>();
+            let guess = update[0];
+            let score = update[1];
+            result.update(guess, score);
+        }
+        result
+    }
+
+    fn update(&mut self, guess: &str, score: &str) {
+        let mut required = HashSet::new();
+        for (i, (g, s)) in guess.chars().zip(score.chars()).enumerate() {
+            match s {
+                '1' => {
+                    self.permitted[i].remove(&g);
+                    if !required.contains(&g) {
+                        for p in self.permitted.iter_mut() {
+                            p.remove(&g);
+                        }
+                    }
+                }
+                '2' => {
+                    self.permitted[i].remove(&g);
+                    required.insert(g);
+                }
+                '3' => {
+                    self.permitted[i].clear();
+                    self.permitted[i].insert(g);
+                    required.insert(g);
+                }
+                _ => {
+                    panic!("Invalid score {}", score);
+                }
+            }
+        }
+    }
+
+    fn permits(&self, answer: &str) -> bool {
+        for (a, p) in answer.chars().zip(&self.permitted) {
+            if !p.contains(&a) {
+                return false;
+            }
+        }
+        true
+    }
+}
+
 #[derive(StructOpt)]
 pub struct Cli {
     guesses: String,
     answers: String,
+    #[structopt(default_value = "")]
+    updates: String,
     #[structopt(long)]
     adversarial: bool,
 }
@@ -67,18 +134,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let args = Cli::from_args();
 
-    let answers = fs::read_to_string(args.answers)
-        .unwrap()
-        .lines()
-        .map(|line| line.trim().chars().collect())
-        .collect::<Vec<Vec<char>>>();
+    let constraint = Constraint::from_updates(&args.updates);
 
-    let guesses = fs::read_to_string(args.guesses)
-        .unwrap()
+    let answers_string = fs::read_to_string(args.answers).unwrap();
+    let answers = answers_string
         .lines()
-        .map(|line| line.trim().chars().collect())
+        .map(|a| a.trim())
+        .filter(|a| constraint.permits(a))
+        .collect::<HashSet<&str>>();
+
+    let guesses_string = fs::read_to_string(args.guesses).unwrap();
+    let guesses = guesses_string
+        .lines()
+        .map(|line| line.trim())
         .chain(answers.clone())
-        .collect::<Vec<Vec<char>>>();
+        .collect::<HashSet<&str>>();
 
     let expected_information: Vec<f64> = match args.adversarial {
         false => guesses
@@ -94,23 +164,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .collect(),
     };
 
-    let result: Vec<(Vec<char>, u64)> = guesses
+    let result: Vec<(&str, u64)> = guesses
         .into_iter()
         .zip(expected_information.iter().map(|e| (1000000.0 * e) as u64))
+        .sorted_by_key(|(g, _)| answers.contains(g))
         .sorted_by_key(|(_, e)| *e)
         .collect();
     for (guess, microbits) in result.iter().take(10) {
         println!(
-            "{}: {}",
-            String::from_iter(guess),
+            "{} {}: {}",
+            if answers.contains(guess) { '!' } else { ' ' },
+            guess,
             *microbits as f64 / 1000000.0
         );
     }
     println!("...");
     for (guess, microbits) in result.iter().rev().take(10).rev() {
         println!(
-            "{}: {}",
-            String::from_iter(guess),
+            "{} {}: {}",
+            if answers.contains(guess) { '!' } else { ' ' },
+            guess,
             *microbits as f64 / 1000000.0
         );
     }
