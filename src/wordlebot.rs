@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::{fs, iter};
+use std::{cmp, fs, iter};
 
 use itertools::Itertools;
 use rayon::prelude::*;
@@ -57,6 +57,8 @@ fn _min_surprise<T>(distribution: &HashMap<T, usize>) -> Option<f64> {
 
 struct Constraint {
     permitted: Vec<HashSet<char>>,
+    lo: HashMap<char, usize>,
+    hi: HashMap<char, usize>,
 }
 
 impl Constraint {
@@ -65,7 +67,11 @@ impl Constraint {
         for _ in 0..5 {
             permitted.push("abcdefghijklmnopqrstuvwxyz".chars().collect());
         }
-        Constraint { permitted }
+        Constraint {
+            permitted,
+            lo: HashMap::new(),
+            hi: HashMap::new(),
+        }
     }
 
     fn from_updates(updates: &str) -> Constraint {
@@ -108,6 +114,32 @@ impl Constraint {
                 }
             }
         }
+
+        let positive = guess
+            .chars()
+            .zip(score.chars())
+            .filter_map(|(g, s)| match s {
+                '2' => Some(g),
+                '3' => Some(g),
+                _ => None,
+            })
+            .counts();
+        let negative = guess
+            .chars()
+            .zip(score.chars())
+            .filter_map(|(g, s)| match s {
+                '1' => Some(g),
+                _ => None,
+            })
+            .counts();
+        for (k, v) in positive {
+            let lo = self.lo.entry(k).or_insert(0);
+            *lo = cmp::max(*lo, v);
+            if negative.contains_key(&k) {
+                let hi = self.hi.entry(k).or_insert(5);
+                *hi = cmp::min(*hi, v);
+            }
+        }
     }
 
     fn permits(&self, answer: &str) -> bool {
@@ -116,6 +148,21 @@ impl Constraint {
                 return false;
             }
         }
+
+        let counts = answer.chars().counts();
+        for (k, lo) in self.lo.iter() {
+            match counts.get(k) {
+                Some(v) if lo <= v => continue,
+                _ => return false,
+            }
+        }
+        for (k, hi) in self.hi.iter() {
+            match counts.get(k) {
+                Some(v) if v <= hi => continue,
+                _ => return false,
+            }
+        }
+
         true
     }
 }
