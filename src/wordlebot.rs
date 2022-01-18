@@ -50,13 +50,9 @@ fn _entropy<T>(distribution: &HashMap<T, usize>) -> f64 {
 }
 
 fn _min_surprise<T>(distribution: &HashMap<T, usize>) -> Option<f64> {
-    // This should work, right?
-    let denominator = f64::log2(distribution.values().sum::<usize>() as f64);
-    let numerator = distribution
-        .values()
-        .map(|v| f64::log2(*v as f64))
-        .max_by(|a, b| a.partial_cmp(b).unwrap())?;
-    Some(denominator - numerator)
+    let numerator = *distribution.values().max()? as f64;
+    let denominator = distribution.values().sum::<usize>() as f64;
+    Some(-f64::log2(numerator / denominator))
 }
 
 #[derive(StructOpt)]
@@ -90,7 +86,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         true => guesses
             .par_iter()
             .map(|guess| {
-                _min_surprise(&answers.iter().map(|answer| _score(guess, answer)).counts()).unwrap()
+                _min_surprise(&answers.iter().map(|answer| _score(guess, answer)).counts())
+                    .expect("at least one answer")
             })
             .collect(),
     };
