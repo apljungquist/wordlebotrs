@@ -5,32 +5,32 @@ use itertools::Itertools;
 use rayon::prelude::*;
 use structopt::StructOpt;
 
-fn _score(guess: &str, answer: &str) -> Vec<char> {
+fn _score<const N: usize>(guess: &Word<N>, answer: &Word<N>) -> Score<N> {
     let len = answer.len();
     assert_eq!(len, guess.len());
     assert_eq!(len, answer.len());
 
-    let mut result: Vec<char> = iter::repeat('-').take(len).collect();
-    let mut remaining: Vec<char> = answer.chars().collect();
+    let mut result: Score<N> = [0; N];
+    let mut remaining = *answer;
 
-    for (i, (g, a)) in guess.chars().zip(answer.chars()).enumerate() {
+    for (i, (g, a)) in guess.iter().zip(answer.iter()).enumerate() {
         if g == a {
-            result[i] = '3';
+            result[i] = 3;
             remaining[i] = ' ';
         }
     }
 
-    for (i, g) in guess.chars().enumerate() {
-        if result[i] == '3' {
+    for (i, g) in guess.iter().enumerate() {
+        if result[i] == 3 {
             continue;
         }
-        match remaining.iter().position(|v| *v == g) {
+        match remaining.iter().position(|v| v == g) {
             Some(j) => {
-                result[i] = '2';
+                result[i] = 2;
                 remaining[j] = ' ';
             }
             None => {
-                result[i] = '1';
+                result[i] = 1;
             }
         }
     }
@@ -38,35 +38,41 @@ fn _score(guess: &str, answer: &str) -> Vec<char> {
     result
 }
 
-fn _entropy<T>(distribution: &HashMap<T, usize>) -> f64 {
+fn _entropy<T>(distribution: &HashMap<T, usize>) -> u64 {
     let denominator = distribution.values().sum::<usize>() as f64;
-    -distribution
+    let result = distribution
         .values()
         .map(|v| {
             let p = *v as f64 / denominator;
-            p * f64::log2(p)
+            p * -f64::log2(p)
         })
-        .sum::<f64>()
+        .sum::<f64>();
+    (1_000_000_000.0 * result) as u64
 }
 
-fn _min_surprise<T>(distribution: &HashMap<T, usize>) -> Option<f64> {
+fn _min_surprise<T>(distribution: &HashMap<T, usize>) -> Option<u64> {
     let numerator = *distribution.values().max()? as f64;
     let denominator = distribution.values().sum::<usize>() as f64;
-    Some(-f64::log2(numerator / denominator))
+    Some((1_000_000_000.0 * -f64::log2(numerator / denominator)) as u64)
 }
 
-struct Constraint {
-    permitted: Vec<HashSet<char>>,
+struct Constraint<const N: usize> {
+    permitted: [HashSet<char>; N],
     lo: HashMap<char, usize>,
     hi: HashMap<char, usize>,
 }
 
-impl Constraint {
-    fn new() -> Constraint {
-        let mut permitted = Vec::with_capacity(5);
-        for _ in 0..5 {
-            permitted.push("abcdefghijklmnopqrstuvwxyz".chars().collect());
-        }
+impl<const N: usize> Constraint<N> {
+    fn new() -> Constraint<N> {
+        let permitted = iter::repeat(
+            "abcdefghijklmnopqrstuvwxyz"
+                .chars()
+                .collect::<HashSet<char>>(),
+        )
+        .take(N)
+        .collect::<Vec<HashSet<char>>>()
+        .try_into()
+        .unwrap();
         Constraint {
             permitted,
             lo: HashMap::new(),
@@ -74,82 +80,79 @@ impl Constraint {
         }
     }
 
-    fn from_updates(updates: &str) -> Constraint {
+    fn from_updates(updates: &[(Word<N>, Score<N>)]) -> Constraint<N> {
         let mut result = Constraint::new();
         if updates.is_empty() {
             return result;
         }
-        for update in updates.split(',') {
-            let update = update.split(':').collect::<Vec<&str>>();
-            let guess = update[0];
-            let score = update[1];
+        for (guess, score) in updates {
             result.update(guess, score);
         }
         result
     }
 
-    fn update(&mut self, guess: &str, score: &str) {
+    fn update(&mut self, guess: &Word<N>, score: &Score<N>) {
         let mut required = HashSet::new();
-        for (i, (g, s)) in guess.chars().zip(score.chars()).enumerate() {
+        for (i, (g, s)) in guess.iter().zip(score.iter()).enumerate() {
             match s {
-                '1' => {
-                    self.permitted[i].remove(&g);
+                1 => {
+                    self.permitted[i].remove(g);
                     if !required.contains(&g) {
                         for p in self.permitted.iter_mut() {
-                            p.remove(&g);
+                            p.remove(g);
                         }
                     }
                 }
-                '2' => {
-                    self.permitted[i].remove(&g);
+                2 => {
+                    self.permitted[i].remove(g);
                     required.insert(g);
                 }
-                '3' => {
+                3 => {
                     self.permitted[i].clear();
-                    self.permitted[i].insert(g);
+                    self.permitted[i].insert(*g);
                     required.insert(g);
                 }
                 _ => {
-                    panic!("Invalid score {}", score);
+                    panic!("Invalid score {:?}", score);
                 }
             }
         }
 
         let positive = guess
-            .chars()
-            .zip(score.chars())
+            .iter()
+            .zip(score.iter())
             .filter_map(|(g, s)| match s {
-                '2' => Some(g),
-                '3' => Some(g),
+                2 => Some(g),
+                3 => Some(g),
                 _ => None,
             })
             .counts();
         let negative = guess
-            .chars()
-            .zip(score.chars())
+            .iter()
+            .zip(score.iter())
             .filter_map(|(g, s)| match s {
-                '1' => Some(g),
+                1 => Some(g),
                 _ => None,
             })
             .counts();
         for (k, v) in positive {
-            let lo = self.lo.entry(k).or_insert(0);
+            let lo = self.lo.entry(*k).or_insert(0);
             *lo = cmp::max(*lo, v);
             if negative.contains_key(&k) {
-                let hi = self.hi.entry(k).or_insert(5);
+                let hi = self.hi.entry(*k).or_insert(5);
                 *hi = cmp::min(*hi, v);
             }
         }
     }
 
-    fn permits(&self, answer: &str) -> bool {
-        for (a, p) in answer.chars().zip(&self.permitted) {
-            if !p.contains(&a) {
+    fn permits(&self, answer: &Word<N>) -> bool {
+        for (a, p) in answer.iter().zip(&self.permitted) {
+            if !p.contains(a) {
                 return false;
             }
         }
 
-        let counts = answer.chars().counts();
+        let counts = answer.iter().counts();
         for (k, lo) in self.lo.iter() {
             match counts.get(k) {
                 Some(v) if lo <= v => continue,
@@ -167,16 +170,19 @@ impl Constraint {
     }
 }
 
-struct Bot {
-    allowed_guesses: Vec<String>,
-    allowed_answers: Vec<String>,
+type Word<const N: usize> = [char; N];
+type Score<const N: usize> = [u8; N];
+
+struct Bot<const N: usize> {
+    allowed_guesses: Vec<Word<N>>,
+    allowed_answers: Vec<Word<N>>,
     adversarial: bool,
-    cache: HashMap<String, String>,
+    cache: HashMap<Vec<(Word<N>, Score<N>)>, Word<N>>,
     num_cache_hit: usize,
 }
 
-impl Bot {
-    fn new(guesses: Vec<String>, answers: Vec<String>, adversarial: bool) -> Bot {
+impl<const N: usize> Bot<N> {
+    fn new(guesses: Vec<Word<N>>, answers: Vec<Word<N>>, adversarial: bool) -> Bot<N> {
         Bot {
             allowed_guesses: guesses
                 .into_iter()
@@ -190,29 +196,30 @@ impl Bot {
         }
     }
 
-    fn choice(&mut self, updates: &str) -> Option<String> {
+    fn choice(&mut self, updates: &[(Word<N>, Score<N>)]) -> Option<Word<N>> {
         if let Some(result) = self.cache.get(updates) {
             self.num_cache_hit += 1;
-            return Some(result.clone());
+            return Some(*result);
         }
 
         let constraint = Constraint::from_updates(updates);
 
-        let plausible_answers: Vec<&String> = self
+        let plausible_answers: Vec<&Word<N>> = self
             .allowed_answers
             .iter()
             .filter(|a| constraint.permits(a))
             .collect();
-
-        let good_guesses: Vec<&String> = if plausible_answers.len() <= 3 {
-            plausible_answers.iter().sorted().cloned().collect()
+        // Before the ordering accounted for plausible answers this reduced the number of guesses.
+        // Now it is only an optimization and provides a 2-3x speedup.
+        let good_guesses: Vec<&Word<N>> = if plausible_answers.len() <= 3 {
+            plausible_answers.clone()
         } else {
             self.allowed_guesses.iter().collect()
         };
 
-        let guesses: Vec<(f64, &&String)> = match self.adversarial {
+        let guesses: Vec<(u64, &Word<N>)> = match self.adversarial {
             false => good_guesses
-                .par_iter()
+                .into_par_iter()
                 .map(|guess| {
                     (
                         _entropy(
@@ -226,7 +233,7 @@ impl Bot {
                 })
                 .collect(),
             true => good_guesses
-                .par_iter()
+                .into_par_iter()
                 .map(|guess| {
                     (
                         _min_surprise(
@@ -242,57 +249,35 @@ impl Bot {
                 .collect(),
         };
 
-        let plausible_answers: HashSet<&String> = plausible_answers.iter().cloned().collect();
+        let plausible_answers: HashSet<&Word<N>> = plausible_answers.into_iter().collect();
         let best = guesses
-            .iter()
-            .max_by(|a, b| match a.0.partial_cmp(&b.0).unwrap() {
-                cmp::Ordering::Equal => {
-                    match (
-                        plausible_answers.contains(a.1),
-                        plausible_answers.contains(b.1),
-                    ) {
-                        (false, true) => cmp::Ordering::Less,
-                        (true, false) => cmp::Ordering::Greater,
-                        _ => b.1.cmp(a.1),
-                    }
-                }
-                ord => ord,
-            })?;
-        self.cache.insert(updates.to_string(), (*best.1).clone());
-        Some((*best.1).clone())
+            .into_iter()
+            .max_by_key(|(info, guess)| (*info, plausible_answers.contains(guess), *guess))?;
+        self.cache.insert(updates.to_vec(), *best.1);
+        Some(*(best.1))
     }
 }
 
-fn _play(bot: &mut Bot, answer: &str) -> String {
-    let mut updates = String::new();
-    let mut i = 10;
+fn _play<const N: usize>(bot: &mut Bot<N>, answer: &Word<N>) -> Vec<(Word<N>, Score<N>)> {
+    let mut updates: Vec<(Word<N>, Score<N>)> = Vec::new();
     loop {
         let choice = bot.choice(&updates).unwrap();
-
-        if !updates.is_empty() {
-            updates.push(',');
-        }
-        updates.push_str(&choice);
-        updates.push(':');
-        updates.extend(_score(&choice, answer));
+        let score = _score(&choice, answer);
+        updates.push((choice, score));
         if choice == *answer {
             break;
-        }
-        i -= 1;
-        if i == 0 {
-            panic!("Ouups {} {}", answer, updates);
         }
     }
     updates
 }
 
-fn _histogram(bot: &mut Bot, answers: Vec<String>) -> HashMap<usize, usize> {
+fn _histogram<const N: usize>(bot: &mut Bot<N>, answers: Vec<Word<N>>) -> HashMap<usize, usize> {
     answers
         .iter()
         .map(|answer| {
             let updates = _play(bot, answer);
-            let n = updates.matches(',').count() + 1;
-            n
+
+            updates.len()
         })
         .counts()
 }
@@ -307,24 +292,63 @@ pub struct Cli {
     adversarial: bool,
 }
 
+fn _read_words<const N: usize>(filepath: &str) -> Vec<Word<N>> {
+    fs::read_to_string(filepath)
+        .unwrap()
+        .lines()
+        .map(|line: &str| {
+            line.trim()
+                .chars()
+                .collect::<Vec<char>>()
+                .as_slice()
+                .try_into()
+                .unwrap()
+        })
+        .collect()
+}
+
+fn _parse_updates<const N: usize>(updates: &str) -> Vec<(Word<N>, Score<N>)> {
+    let mut result = Vec::new();
+    if updates.is_empty(){
+        return result
+    }
+    for update in updates.split(',') {
+        let update = update.split(':').collect::<Vec<&str>>();
+        let guess = update[0]
+            .chars()
+            .collect::<Vec<char>>()
+            .as_slice()
+            .try_into()
+            .unwrap();
+        let score = update[1]
+            .chars()
+            .map(|c| match c {
+                '1' => 1,
+                '2' => 2,
+                '3' => 3,
+                _ => panic!("Expected [1-3] but found {}", c),
+            })
+            .collect::<Vec<u8>>()
+            .as_slice()
+            .try_into()
+            .unwrap();
+        result.push((guess, score));
+    }
+    result
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let args = Cli::from_args();
 
-    let mut bot = Bot::new(
-        fs::read_to_string(args.guesses)?
-            .lines()
-            .map(|line: &str| line.trim().into())
-            .collect(),
-        fs::read_to_string(args.answers)?
-            .lines()
-            .map(|line: &str| line.trim().into())
-            .collect(),
+    let mut bot: Bot<5> = Bot::new(
+        _read_words(&args.guesses),
+        _read_words(&args.answers),
         args.adversarial,
     );
-    match bot.choice(&args.updates) {
+    match bot.choice(&_parse_updates(&args.updates)) {
         Some(guess) => {
-            println!("{}", guess);
+            println!("{}", guess.iter().join(""));
             Ok(())
         }
         None => Err("Could not find a best guess".into()),
@@ -333,34 +357,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
     use super::*;
 
-    fn read_guesses() -> Vec<String> {
-        fs::read_to_string("wordlist.txt")
-            .unwrap()
-            .lines()
-            .map(|line: &str| line.trim().into())
-            .collect()
+    fn read_guesses<const N: usize>() -> Vec<Word<N>> {
+        _read_words("wordlist.txt")
     }
 
-    fn read_answers() -> Vec<String> {
-        fs::read_to_string("wordlist.txt")
-            .unwrap()
-            .lines()
-            .map(|line: &str| line.trim().into())
-            .collect()
+    fn read_answers<const N: usize>() -> Vec<Word<N>> {
+        _read_words("wordlist.txt")
     }
 
-    fn read_bot() -> Bot {
-        Bot::new(read_guesses(), read_answers(), false)
+    fn read_bot<const N: usize>() -> Bot<N> {
+        Bot::new(read_guesses::<N>(), read_answers::<N>(), false)
     }
 
     #[test]
     fn all_words_can_be_solved() {
         let mut bot = read_bot();
-        let answers = read_answers();
+        let answers: Vec<[char; 5]> = read_answers();
 
         let histogram = _histogram(&mut bot, answers);
         let num_answer = histogram.values().sum::<usize>();
