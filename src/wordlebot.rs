@@ -167,6 +167,136 @@ impl Constraint {
     }
 }
 
+struct Bot {
+    allowed_guesses: Vec<String>,
+    allowed_answers: Vec<String>,
+    adversarial: bool,
+    cache: HashMap<String, String>,
+    num_cache_hit: usize,
+}
+
+impl Bot {
+    fn new(guesses: Vec<String>, answers: Vec<String>, adversarial: bool) -> Bot {
+        Bot {
+            allowed_guesses: guesses
+                .into_iter()
+                .chain(answers.iter().cloned())
+                .unique()
+                .collect(),
+            allowed_answers: answers,
+            adversarial,
+            cache: HashMap::new(),
+            num_cache_hit: 0,
+        }
+    }
+
+    fn choice(&mut self, updates: &str) -> Option<String> {
+        if let Some(result) = self.cache.get(updates) {
+            self.num_cache_hit += 1;
+            return Some(result.clone());
+        }
+
+        let constraint = Constraint::from_updates(updates);
+
+        let plausible_answers: Vec<&String> = self
+            .allowed_answers
+            .iter()
+            .filter(|a| constraint.permits(a))
+            .collect();
+
+        let good_guesses: Vec<&String> = if plausible_answers.len() <= 3 {
+            plausible_answers.iter().sorted().cloned().collect()
+        } else {
+            self.allowed_guesses.iter().collect()
+        };
+
+        let guesses: Vec<(f64, &&String)> = match self.adversarial {
+            false => good_guesses
+                .par_iter()
+                .map(|guess| {
+                    (
+                        _entropy(
+                            &plausible_answers
+                                .iter()
+                                .map(|answer| _score(guess, answer))
+                                .counts(),
+                        ),
+                        guess,
+                    )
+                })
+                .collect(),
+            true => good_guesses
+                .par_iter()
+                .map(|guess| {
+                    (
+                        _min_surprise(
+                            &plausible_answers
+                                .iter()
+                                .map(|answer| _score(guess, answer))
+                                .counts(),
+                        )
+                        .expect("at least one answer"),
+                        guess,
+                    )
+                })
+                .collect(),
+        };
+
+        let plausible_answers: HashSet<&String> = plausible_answers.iter().cloned().collect();
+        let best = guesses
+            .iter()
+            .max_by(|a, b| match a.0.partial_cmp(&b.0).unwrap() {
+                cmp::Ordering::Equal => {
+                    match (
+                        plausible_answers.contains(a.1),
+                        plausible_answers.contains(b.1),
+                    ) {
+                        (false, true) => cmp::Ordering::Less,
+                        (true, false) => cmp::Ordering::Greater,
+                        _ => b.1.cmp(a.1),
+                    }
+                }
+                ord => ord,
+            })?;
+        self.cache.insert(updates.to_string(), (*best.1).clone());
+        Some((*best.1).clone())
+    }
+}
+
+fn _play(bot: &mut Bot, answer: &str) -> String {
+    let mut updates = String::new();
+    let mut i = 10;
+    loop {
+        let choice = bot.choice(&updates).unwrap();
+
+        if !updates.is_empty() {
+            updates.push(',');
+        }
+        updates.push_str(&choice);
+        updates.push(':');
+        updates.extend(_score(&choice, answer));
+        if choice == *answer {
+            break;
+        }
+        i -= 1;
+        if i == 0 {
+            panic!("Ouups {} {}", answer, updates);
+        }
+    }
+    updates
+}
+
+fn _histogram(bot: &mut Bot, answers: Vec<String>) -> HashMap<usize, usize> {
+    answers
+        .iter()
+        .map(|answer| {
+            let updates = _play(bot, answer);
+            let n = updates.matches(',').count() + 1;
+            n
+        })
+        .counts()
+}
+
 #[derive(StructOpt)]
 pub struct Cli {
     guesses: String,
@@ -181,59 +311,76 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let args = Cli::from_args();
 
-    let constraint = Constraint::from_updates(&args.updates);
-
-    let answers_string = fs::read_to_string(args.answers).unwrap();
-    let answers = answers_string
-        .lines()
-        .map(|a| a.trim())
-        .filter(|a| constraint.permits(a))
-        .collect::<HashSet<&str>>();
-
-    let guesses_string = fs::read_to_string(args.guesses).unwrap();
-    let guesses = guesses_string
-        .lines()
-        .map(|line| line.trim())
-        .chain(answers.clone())
-        .collect::<HashSet<&str>>();
-
-    let expected_information: Vec<f64> = match args.adversarial {
-        false => guesses
-            .par_iter()
-            .map(|guess| _entropy(&answers.iter().map(|answer| _score(guess, answer)).counts()))
+    let mut bot = Bot::new(
+        fs::read_to_string(args.guesses)?
+            .lines()
+            .map(|line: &str| line.trim().into())
             .collect(),
-        true => guesses
-            .par_iter()
-            .map(|guess| {
-                _min_surprise(&answers.iter().map(|answer| _score(guess, answer)).counts())
-                    .expect("at least one answer")
-            })
+        fs::read_to_string(args.answers)?
+            .lines()
+            .map(|line: &str| line.trim().into())
             .collect(),
-    };
-
-    let result: Vec<(&str, u64)> = guesses
-        .into_iter()
-        .zip(expected_information.iter().map(|e| (1000000.0 * e) as u64))
-        .sorted_by_key(|(g, _)| answers.contains(g))
-        .sorted_by_key(|(_, e)| *e)
-        .collect();
-    for (guess, microbits) in result.iter().take(10) {
-        println!(
-            "{} {}: {}",
-            if answers.contains(guess) { '!' } else { ' ' },
-            guess,
-            *microbits as f64 / 1000000.0
-        );
+        args.adversarial,
+    );
+    match bot.choice(&args.updates) {
+        Some(guess) => {
+            println!("{}", guess);
+            Ok(())
+        }
+        None => Err("Could not find a best guess".into()),
     }
-    println!("...");
-    for (guess, microbits) in result.iter().rev().take(10).rev() {
-        println!(
-            "{} {}: {}",
-            if answers.contains(guess) { '!' } else { ' ' },
-            guess,
-            *microbits as f64 / 1000000.0
-        );
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::*;
+
+    fn read_guesses() -> Vec<String> {
+        fs::read_to_string("wordlist.txt")
+            .unwrap()
+            .lines()
+            .map(|line: &str| line.trim().into())
+            .collect()
     }
 
-    Ok(())
+    fn read_answers() -> Vec<String> {
+        fs::read_to_string("wordlist.txt")
+            .unwrap()
+            .lines()
+            .map(|line: &str| line.trim().into())
+            .collect()
+    }
+
+    fn read_bot() -> Bot {
+        Bot::new(read_guesses(), read_answers(), false)
+    }
+
+    #[test]
+    fn all_words_can_be_solved() {
+        let mut bot = read_bot();
+        let answers = read_answers();
+
+        let histogram = _histogram(&mut bot, answers);
+        let num_answer = histogram.values().sum::<usize>();
+        let num_guess = histogram.iter().map(|(k, v)| k * v).sum::<usize>();
+        let max_guess = *histogram.keys().max().unwrap();
+        println!(
+            "Histogram: {:?}",
+            histogram
+                .into_iter()
+                .sorted()
+                .collect::<Vec<(usize, usize)>>()
+        );
+        println!("Num answers: {}", num_answer);
+        println!("Num guesses: {}", num_guess);
+        println!("Avg guesses: {}", num_guess as f64 / num_answer as f64);
+        println!("Max guesses: {}", max_guess);
+        println!(
+            "Cache hits: {}, misses: {}",
+            bot.num_cache_hit,
+            bot.cache.len(),
+        );
+    }
 }
