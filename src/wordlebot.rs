@@ -69,6 +69,7 @@ fn _min_surprise<T>(distribution: &HashMap<T, usize>) -> Option<u64> {
     Some((1_000_000_000.0 * -f64::log2(numerator / denominator)) as u64)
 }
 
+#[derive(Debug)]
 struct Constraint<const N: usize> {
     permitted: [HashSet<char>; N],
     lo: HashMap<char, usize>,
@@ -76,7 +77,7 @@ struct Constraint<const N: usize> {
 }
 
 impl<const N: usize> Constraint<N> {
-    fn new() -> Constraint<N> {
+    fn new() -> Self {
         let permitted = iter::repeat(
             "abcdefghijklmnopqrstuvwxyz"
                 .chars()
@@ -86,15 +87,15 @@ impl<const N: usize> Constraint<N> {
         .collect::<Vec<HashSet<char>>>()
         .try_into()
         .unwrap();
-        Constraint {
+        Self {
             permitted,
             lo: HashMap::new(),
             hi: HashMap::new(),
         }
     }
 
-    fn from_clues(clues: &[(Word<N>, Score<N>)]) -> Constraint<N> {
-        let mut result = Constraint::new();
+    fn from_clues(clues: &[(Word<N>, Score<N>)]) -> Self {
+        let mut result = Self::new();
         if clues.is_empty() {
             return result;
         }
@@ -195,8 +196,8 @@ struct Bot<const N: usize> {
 }
 
 impl<const N: usize> Bot<N> {
-    fn new(guesses: Vec<Word<N>>, answers: Vec<Word<N>>, adversarial: bool) -> Bot<N> {
-        Bot {
+    fn new(guesses: Vec<Word<N>>, answers: Vec<Word<N>>, adversarial: bool) -> Self {
+        Self {
             allowed_guesses: guesses
                 .into_iter()
                 .chain(answers.iter().cloned())
