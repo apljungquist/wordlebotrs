@@ -80,12 +80,12 @@ impl<const N: usize> Constraint<N> {
         }
     }
 
-    fn from_updates(updates: &[(Word<N>, Score<N>)]) -> Constraint<N> {
+    fn from_clues(clues: &[(Word<N>, Score<N>)]) -> Constraint<N> {
         let mut result = Constraint::new();
-        if updates.is_empty() {
+        if clues.is_empty() {
             return result;
         }
-        for (guess, score) in updates {
+        for (guess, score) in clues {
             result.update(guess, score);
         }
         result
@@ -196,13 +196,13 @@ impl<const N: usize> Bot<N> {
         }
     }
 
-    fn choice(&mut self, updates: &[(Word<N>, Score<N>)]) -> Option<Word<N>> {
-        if let Some(result) = self.cache.get(updates) {
+    fn choice(&mut self, clues: &[(Word<N>, Score<N>)]) -> Option<Word<N>> {
+        if let Some(result) = self.cache.get(clues) {
             self.num_cache_hit += 1;
             return Some(*result);
         }
 
-        let constraint = Constraint::from_updates(updates);
+        let constraint = Constraint::from_clues(clues);
 
         let plausible_answers: Vec<&Word<N>> = self
             .allowed_answers
@@ -253,31 +253,31 @@ impl<const N: usize> Bot<N> {
         let best = guesses
             .into_iter()
             .max_by_key(|(info, guess)| (*info, plausible_answers.contains(guess), *guess))?;
-        self.cache.insert(updates.to_vec(), *best.1);
+        self.cache.insert(clues.to_vec(), *best.1);
         Some(*(best.1))
     }
 }
 
 fn _play<const N: usize>(bot: &mut Bot<N>, answer: &Word<N>) -> Vec<(Word<N>, Score<N>)> {
-    let mut updates: Vec<(Word<N>, Score<N>)> = Vec::new();
+    let mut clues: Vec<(Word<N>, Score<N>)> = Vec::new();
     loop {
-        let choice = bot.choice(&updates).unwrap();
+        let choice = bot.choice(&clues).unwrap();
         let score = _score(&choice, answer);
-        updates.push((choice, score));
+        clues.push((choice, score));
         if choice == *answer {
             break;
         }
     }
-    updates
+    clues
 }
 
 fn _histogram<const N: usize>(bot: &mut Bot<N>, answers: Vec<Word<N>>) -> HashMap<usize, usize> {
     answers
         .iter()
         .map(|answer| {
-            let updates = _play(bot, answer);
+            let clues = _play(bot, answer);
 
-            updates.len()
+            clues.len()
         })
         .counts()
 }
@@ -287,7 +287,7 @@ pub struct Cli {
     guesses: String,
     answers: String,
     #[structopt(default_value = "")]
-    updates: String,
+    clues: String,
     #[structopt(long)]
     adversarial: bool,
 }
@@ -307,20 +307,20 @@ fn _read_words<const N: usize>(filepath: &str) -> Vec<Word<N>> {
         .collect()
 }
 
-fn _parse_updates<const N: usize>(updates: &str) -> Vec<(Word<N>, Score<N>)> {
+fn _parse_clues<const N: usize>(clues: &str) -> Vec<(Word<N>, Score<N>)> {
     let mut result = Vec::new();
-    if updates.is_empty(){
-        return result
+    if clues.is_empty() {
+        return result;
     }
-    for update in updates.split(',') {
-        let update = update.split(':').collect::<Vec<&str>>();
-        let guess = update[0]
+    for clue in clues.split(',') {
+        let clue = clue.split(':').collect::<Vec<&str>>();
+        let guess = clue[0]
             .chars()
             .collect::<Vec<char>>()
             .as_slice()
             .try_into()
             .unwrap();
-        let score = update[1]
+        let score = clue[1]
             .chars()
             .map(|c| match c {
                 '1' => 1,
@@ -346,7 +346,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         _read_words(&args.answers),
         args.adversarial,
     );
-    match bot.choice(&_parse_updates(&args.updates)) {
+    match bot.choice(&_parse_clues(&args.clues)) {
         Some(guess) => {
             println!("{}", guess.iter().join(""));
             Ok(())
