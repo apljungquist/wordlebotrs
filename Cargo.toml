@@ -8,6 +8,7 @@ exclude = [".*","inputs/"]
 
 [dependencies]
 env_logger = "0.9.0"
+hashbrown = "0.12.0"
 itertools = "0.10.3"
 log = "0.4.14"
 rayon = "1.5.1"

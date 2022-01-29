@@ -1,6 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 use std::{cmp, fs, iter};
 
+use hashbrown::{HashMap, HashSet};
 use itertools::Itertools;
 use rayon::prelude::*;
 use structopt::StructOpt;
@@ -36,6 +37,18 @@ fn _score<const N: usize>(guess: &Word<N>, answer: &Word<N>) -> Score<N> {
     }
 
     result
+}
+impl<T: ?Sized> MyItertools for T where T: Iterator {}
+trait MyItertools: Iterator {
+    fn fast_counts(self) -> HashMap<Self::Item, usize>
+    where
+        Self: Sized,
+        Self::Item: Eq + Hash,
+    {
+        let mut result = HashMap::new();
+        self.for_each(|item| *result.entry(item).or_insert(0) += 1);
+        result
+    }
 }
 
 fn _entropy<T>(distribution: &HashMap<T, usize>) -> u64 {
@@ -126,7 +139,7 @@ impl<const N: usize> Constraint<N> {
                 3 => Some(g),
                 _ => None,
             })
-            .counts();
+            .fast_counts();
         let negative = guess
             .iter()
             .zip(score.iter())
@@ -134,7 +147,7 @@ impl<const N: usize> Constraint<N> {
                 1 => Some(g),
                 _ => None,
             })
-            .counts();
+            .fast_counts();
         for (k, v) in positive {
             let lo = self.lo.entry(*k).or_insert(0);
             *lo = cmp::max(*lo, v);
@@ -152,7 +165,7 @@ impl<const N: usize> Constraint<N> {
             }
         }
 
-        let counts = answer.iter().counts();
+        let counts = answer.iter().fast_counts();
         for (k, lo) in self.lo.iter() {
             match counts.get(k) {
                 Some(v) if lo <= v => continue,
@@ -216,7 +229,6 @@ impl<const N: usize> Bot<N> {
         } else {
             self.allowed_guesses.iter().collect()
         };
-
         let guesses: Vec<(u64, &Word<N>)> = match self.adversarial {
             false => good_guesses
                 .into_par_iter()
@@ -226,7 +238,7 @@ impl<const N: usize> Bot<N> {
                             &plausible_answers
                                 .iter()
                                 .map(|answer| _score(guess, answer))
-                                .counts(),
+                                .fast_counts(),
                         ),
                         guess,
                     )
@@ -240,7 +252,7 @@ impl<const N: usize> Bot<N> {
                             &plausible_answers
                                 .iter()
                                 .map(|answer| _score(guess, answer))
-                                .counts(),
+                                .fast_counts(),
                         )
                         .expect("at least one answer"),
                         guess,
@@ -279,7 +291,9 @@ fn _histogram<const N: usize>(bot: &mut Bot<N>, answers: Vec<Word<N>>) -> HashMa
 
             clues.len()
         })
-        .counts()
+        .fast_counts()
+        .into_iter()
+        .collect()
 }
 
 #[derive(StructOpt)]
