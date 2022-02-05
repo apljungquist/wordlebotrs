@@ -38,7 +38,9 @@ fn _score<const N: usize>(guess: &Word<N>, answer: &Word<N>) -> Score<N> {
 
     result
 }
+
 impl<T: ?Sized> MyItertools for T where T: Iterator {}
+
 trait MyItertools: Iterator {
     fn fast_counts(self) -> HashMap<Self::Item, usize>
     where
@@ -284,17 +286,31 @@ fn _play<const N: usize>(bot: &mut Bot<N>, answer: &Word<N>) -> Vec<(Word<N>, Sc
     clues
 }
 
-fn _histogram<const N: usize>(bot: &mut Bot<N>, answers: Vec<Word<N>>) -> HashMap<usize, usize> {
+fn _histogram<const N: usize>(wordlist: &str, adversarial: bool) -> HashMap<usize, usize> {
+    let mut bot: Bot<N> = Bot::new(_guesses(wordlist), _answers(wordlist), adversarial);
+    let answers = bot.allowed_answers.clone();
     answers
         .iter()
         .map(|answer| {
-            let clues = _play(bot, answer);
+            let clues = _play(&mut bot, answer);
 
             clues.len()
         })
         .fast_counts()
         .into_iter()
         .collect()
+}
+
+fn _choice<const N: usize>(
+    wordlist: &str,
+    clues: &str,
+    adversarial: bool,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let mut bot: Bot<N> = Bot::new(_guesses(wordlist), _answers(wordlist), adversarial);
+    match bot.choice(&_parse_clues(clues)) {
+        Some(guess) => Ok(guess.iter().join("")),
+        None => Err("Could not find a best guess".into()),
+    }
 }
 
 #[derive(StructOpt)]
@@ -313,6 +329,10 @@ fn _word<const N: usize>(line: &str) -> Word<N> {
         .as_slice()
         .try_into()
         .unwrap()
+}
+
+fn _word_length(text: &str) -> usize {
+    text.lines().next().unwrap().len()
 }
 
 fn _answers<const N: usize>(text: &str) -> Vec<Word<N>> {
@@ -359,33 +379,29 @@ fn _read_bot<const N: usize>(args: &Cli) -> Bot<N> {
     Bot::new(_guesses(&wordlist), _answers(&wordlist), args.adversarial)
 }
 
+fn _main(args: &Cli) -> Result<String, Box<dyn std::error::Error>> {
+    let wordlist = fs::read_to_string(&args.wordlist).unwrap();
+    let guess = match _word_length(&wordlist) {
+        5 => _choice::<5>(&wordlist, &args.clues, args.adversarial),
+        6 => _choice::<6>(&wordlist, &args.clues, args.adversarial),
+        _ => todo!(),
+    }?;
+    Ok(guess)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let args = Cli::from_args();
-    let mut bot: Bot<5> = _read_bot(&args);
-    match bot.choice(&_parse_clues(&args.clues)) {
-        Some(guess) => {
-            println!("{}", guess.iter().join(""));
-            Ok(())
-        }
-        None => Err("Could not find a best guess".into()),
-    }
+    let output = _main(&args)?;
+    println!("{}", output);
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn all_words_can_be_solved() {
-        let mut bot: Bot<5> = _read_bot(&Cli {
-            wordlist: "wordlist.txt".into(),
-            clues: "".into(),
-            adversarial: false,
-        });
-        let answers = bot.allowed_answers.clone();
-
-        let histogram = _histogram(&mut bot, answers);
+    fn print_stats(histogram: &HashMap<usize, usize>) {
         let num_answer = histogram.values().sum::<usize>();
         let num_guess = histogram.iter().map(|(k, v)| k * v).sum::<usize>();
         let max_guess = *histogram.keys().max().unwrap();
@@ -394,16 +410,50 @@ mod tests {
             histogram
                 .into_iter()
                 .sorted()
-                .collect::<Vec<(usize, usize)>>()
+                .collect::<Vec<(&usize, &usize)>>()
         );
         println!("Num answers: {}", num_answer);
         println!("Num guesses: {}", num_guess);
         println!("Avg guesses: {}", num_guess as f64 / num_answer as f64);
         println!("Max guesses: {}", max_guess);
-        println!(
-            "Cache hits: {}, misses: {}",
-            bot.num_cache_hit,
-            bot.cache.len(),
-        );
+    }
+
+    #[test]
+    fn all_5_letter_words_can_be_solved() {
+        let wordlist = fs::read_to_string("wordlist5.txt").unwrap();
+        let histogram = _histogram::<5>(&wordlist, false);
+        print_stats(&histogram);
+    }
+    #[test]
+    fn all_6_letter_words_can_be_solved() {
+        let wordlist = fs::read_to_string("wordlist6.txt").unwrap();
+        let histogram = _histogram::<6>(&wordlist, false);
+        print_stats(&histogram);
+    }
+
+    #[test]
+    fn main_works_on_5_letter_example() {
+        let output = _main(&Cli {
+            wordlist: "wordlist5.txt".into(),
+            adversarial: false,
+            clues: "soare:13121,truly:22111,nicht:11113".into(),
+        })
+        .unwrap();
+        // The answer need not be robot but it has been in the past so this is just a
+        // lazy way to ensure the output is not garbage.
+        assert_eq!(output, "robot");
+    }
+
+    #[test]
+    fn main_works_on_6_letter_example() {
+        let output = _main(&Cli {
+            wordlist: "wordlist6.txt".into(),
+            adversarial: false,
+            clues: "tories:131211,mundic:121121".into(),
+        })
+        .unwrap();
+        // The answer need not be robot but it has been in the past so this is just a
+        // lazy way to ensure the output is not garbage.
+        assert_eq!(output, "lobuli");
     }
 }
