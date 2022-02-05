@@ -27,4 +27,6 @@ jobs:
       - name: Check tests
         run: cargo test --verbose
       - name: Check publish
-        run: cargo publish --dry-run
+        run: |
+          git status
+          cargo publish --dry-run
