@@ -420,13 +420,13 @@ mod tests {
 
     #[test]
     fn all_5_letter_words_can_be_solved() {
-        let wordlist = fs::read_to_string("wordlist5.txt").unwrap();
+        let wordlist = fs::read_to_string("wordlists/small5.txt").unwrap();
         let histogram = _histogram::<5>(&wordlist, false);
         print_stats(&histogram);
     }
     #[test]
     fn all_6_letter_words_can_be_solved() {
-        let wordlist = fs::read_to_string("wordlist6.txt").unwrap();
+        let wordlist = fs::read_to_string("wordlists/small6.txt").unwrap();
         let histogram = _histogram::<6>(&wordlist, false);
         print_stats(&histogram);
     }
@@ -434,26 +434,26 @@ mod tests {
     #[test]
     fn main_works_on_5_letter_example() {
         let output = _main(&Cli {
-            wordlist: "wordlist5.txt".into(),
+            wordlist: "wordlists/small5.txt".into(),
             adversarial: false,
-            clues: "soare:13121,truly:22111,nicht:11113".into(),
+            clues: "soare:13121".into(),
         })
         .unwrap();
         // The answer need not be robot but it has been in the past so this is just a
         // lazy way to ensure the output is not garbage.
-        assert_eq!(output, "robot");
+        assert_eq!(output, "fitch");
     }
 
     #[test]
     fn main_works_on_6_letter_example() {
         let output = _main(&Cli {
-            wordlist: "wordlist6.txt".into(),
+            wordlist: "wordlists/small6.txt".into(),
             adversarial: false,
-            clues: "tories:131211,mundic:121121".into(),
+            clues: "tories:131211".into(),
         })
         .unwrap();
         // The answer need not be robot but it has been in the past so this is just a
         // lazy way to ensure the output is not garbage.
-        assert_eq!(output, "lobuli");
+        assert_eq!(output, "domain");
     }
 }
