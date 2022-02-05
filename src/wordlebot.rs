@@ -299,26 +299,33 @@ fn _histogram<const N: usize>(bot: &mut Bot<N>, answers: Vec<Word<N>>) -> HashMa
 
 #[derive(StructOpt)]
 pub struct Cli {
-    guesses: String,
-    answers: String,
+    wordlist: String,
     #[structopt(default_value = "")]
     clues: String,
     #[structopt(long)]
     adversarial: bool,
 }
 
-fn _read_words<const N: usize>(filepath: &str) -> Vec<Word<N>> {
-    fs::read_to_string(filepath)
+fn _word<const N: usize>(line: &str) -> Word<N> {
+    line.trim()
+        .chars()
+        .collect::<Vec<char>>()
+        .as_slice()
+        .try_into()
         .unwrap()
-        .lines()
-        .map(|line: &str| {
-            line.trim()
-                .chars()
-                .collect::<Vec<char>>()
-                .as_slice()
-                .try_into()
-                .unwrap()
-        })
+}
+
+fn _answers<const N: usize>(text: &str) -> Vec<Word<N>> {
+    text.lines()
+        .take_while(|line| !line.is_empty())
+        .map(_word)
+        .collect()
+}
+
+fn _guesses<const N: usize>(text: &str) -> Vec<Word<N>> {
+    text.lines()
+        .filter(|line| !line.is_empty())
+        .map(_word)
         .collect()
 }
 
@@ -329,12 +336,7 @@ fn _parse_clues<const N: usize>(clues: &str) -> Vec<(Word<N>, Score<N>)> {
     }
     for clue in clues.split(',') {
         let clue = clue.split(':').collect::<Vec<&str>>();
-        let guess = clue[0]
-            .chars()
-            .collect::<Vec<char>>()
-            .as_slice()
-            .try_into()
-            .unwrap();
+        let guess = _word(clue[0]);
         let score = clue[1]
             .chars()
             .map(|c| match c {
@@ -352,15 +354,15 @@ fn _parse_clues<const N: usize>(clues: &str) -> Vec<(Word<N>, Score<N>)> {
     result
 }
 
+fn _read_bot<const N: usize>(args: &Cli) -> Bot<N> {
+    let wordlist = fs::read_to_string(&args.wordlist).unwrap();
+    Bot::new(_guesses(&wordlist), _answers(&wordlist), args.adversarial)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let args = Cli::from_args();
-
-    let mut bot: Bot<5> = Bot::new(
-        _read_words(&args.guesses),
-        _read_words(&args.answers),
-        args.adversarial,
-    );
+    let mut bot: Bot<5> = _read_bot(&args);
     match bot.choice(&_parse_clues(&args.clues)) {
         Some(guess) => {
             println!("{}", guess.iter().join(""));
@@ -374,22 +376,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 mod tests {
     use super::*;
 
-    fn read_guesses<const N: usize>() -> Vec<Word<N>> {
-        _read_words("wordlist.txt")
-    }
-
-    fn read_answers<const N: usize>() -> Vec<Word<N>> {
-        _read_words("wordlist.txt")
-    }
-
-    fn read_bot<const N: usize>() -> Bot<N> {
-        Bot::new(read_guesses::<N>(), read_answers::<N>(), false)
-    }
-
     #[test]
     fn all_words_can_be_solved() {
-        let mut bot = read_bot();
-        let answers: Vec<[char; 5]> = read_answers();
+        let mut bot: Bot<5> = _read_bot(&Cli {
+            wordlist: "wordlist.txt".into(),
+            clues: "".into(),
+            adversarial: false,
+        });
+        let answers = bot.allowed_answers.clone();
 
         let histogram = _histogram(&mut bot, answers);
         let num_answer = histogram.values().sum::<usize>();
