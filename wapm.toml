@@ -1,0 +1,15 @@
+[package]
+name = "aplq/wordlebot"
+version = "0.1.0"
+description = "A program that plays wordle"
+readme = "README.md"
+repository = "https://github.com/wapm-packages/wordlebot"
+
+[[module]]
+name = "wordlebot"
+source = "target/wasm32-wasi/release/wordlebot.wasm"
+abi = "wasi"
+
+[[command]]
+name = "wordlebot"
+module = "wordlebot"

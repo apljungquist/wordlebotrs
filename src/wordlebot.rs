@@ -1,9 +1,8 @@
 use std::hash::Hash;
-use std::{cmp, fs, iter};
+use std::{cmp, iter};
 
 use hashbrown::{HashMap, HashSet};
 use itertools::Itertools;
-use rayon::prelude::*;
 use structopt::StructOpt;
 
 fn _score<const N: usize>(guess: &Word<N>, answer: &Word<N>) -> Score<N> {
@@ -234,7 +233,7 @@ impl<const N: usize> Bot<N> {
         };
         let guesses: Vec<(u64, &Word<N>)> = match self.adversarial {
             false => good_guesses
-                .into_par_iter()
+                .into_iter()
                 .map(|guess| {
                     (
                         _entropy(
@@ -248,7 +247,7 @@ impl<const N: usize> Bot<N> {
                 })
                 .collect(),
             true => good_guesses
-                .into_par_iter()
+                .into_iter()
                 .map(|guess| {
                     (
                         _min_surprise(
@@ -314,11 +313,15 @@ fn _choice<const N: usize>(
 }
 
 #[derive(StructOpt)]
+/// Suggest the next guess in a game of wordle
 pub struct Cli {
-    wordlist: String,
-    #[structopt(default_value = "")]
+    /// Clues formatted like tares:22211,cruft:12213 where
+    /// 1 is gray,
+    /// 2 is yellow, and
+    /// 3 is green.
     clues: String,
     #[structopt(long)]
+    /// If set, play as if the game is trying to avoid giving you the answer.
     adversarial: bool,
 }
 
@@ -374,32 +377,27 @@ fn _parse_clues<const N: usize>(clues: &str) -> Vec<(Word<N>, Score<N>)> {
     result
 }
 
-fn _read_bot<const N: usize>(args: &Cli) -> Bot<N> {
-    let wordlist = fs::read_to_string(&args.wordlist).unwrap();
-    Bot::new(_guesses(&wordlist), _answers(&wordlist), args.adversarial)
-}
-
 fn _main(args: &Cli) -> Result<String, Box<dyn std::error::Error>> {
-    let wordlist = fs::read_to_string(&args.wordlist).unwrap();
-    let guess = match _word_length(&wordlist) {
-        5 => _choice::<5>(&wordlist, &args.clues, args.adversarial),
-        6 => _choice::<6>(&wordlist, &args.clues, args.adversarial),
+    let wordlist = include_str!("../wordlists/original.txt");
+    let guess = match _word_length(wordlist) {
+        5 => _choice::<5>(wordlist, &args.clues, args.adversarial),
+        6 => _choice::<6>(wordlist, &args.clues, args.adversarial),
         _ => todo!(),
     }?;
     Ok(guess)
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() {
     env_logger::init();
     let args = Cli::from_args();
-    let output = _main(&args)?;
+    let output = _main(&args).unwrap();
     println!("{}", output);
-    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     fn print_stats(histogram: &HashMap<usize, usize>) {
         let num_answer = histogram.values().sum::<usize>();
@@ -423,37 +421,5 @@ mod tests {
         let wordlist = fs::read_to_string("wordlists/small5.txt").unwrap();
         let histogram = _histogram::<5>(&wordlist, false);
         print_stats(&histogram);
-    }
-    #[test]
-    fn all_6_letter_words_can_be_solved() {
-        let wordlist = fs::read_to_string("wordlists/small6.txt").unwrap();
-        let histogram = _histogram::<6>(&wordlist, false);
-        print_stats(&histogram);
-    }
-
-    #[test]
-    fn main_works_on_5_letter_example() {
-        let output = _main(&Cli {
-            wordlist: "wordlists/small5.txt".into(),
-            adversarial: false,
-            clues: "soare:13121".into(),
-        })
-        .unwrap();
-        // The answer need not be robot but it has been in the past so this is just a
-        // lazy way to ensure the output is not garbage.
-        assert_eq!(output, "fitch");
-    }
-
-    #[test]
-    fn main_works_on_6_letter_example() {
-        let output = _main(&Cli {
-            wordlist: "wordlists/small6.txt".into(),
-            adversarial: false,
-            clues: "tories:131211".into(),
-        })
-        .unwrap();
-        // The answer need not be robot but it has been in the past so this is just a
-        // lazy way to ensure the output is not garbage.
-        assert_eq!(output, "domain");
     }
 }
