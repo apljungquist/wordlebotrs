@@ -1,5 +1,5 @@
 use std::hash::Hash;
-use std::{cmp, iter};
+use std::{cmp, fs, iter};
 
 use hashbrown::{HashMap, HashSet};
 use itertools::Itertools;
@@ -323,6 +323,9 @@ pub struct Cli {
     #[structopt(long)]
     /// If set, play as if the game is trying to avoid giving you the answer.
     adversarial: bool,
+    /// Use a custom wordlist
+    #[structopt(long)]
+    wordlist: Option<String>,
 }
 
 fn _word<const N: usize>(line: &str) -> Word<N> {
@@ -378,7 +381,15 @@ fn _parse_clues<const N: usize>(clues: &str) -> Vec<(Word<N>, Score<N>)> {
 }
 
 fn _main(args: &Cli) -> Result<String, Box<dyn std::error::Error>> {
-    let wordlist = include_str!("../wordlists/original.txt");
+    let default_wordlist = include_str!("../wordlists/original.txt");
+    let custom_wordlist: Option<String> = args
+        .wordlist
+        .as_ref()
+        .map(|wordlist| fs::read_to_string(wordlist).unwrap());
+    let wordlist = match &custom_wordlist {
+        Some(v) => v,
+        None => default_wordlist,
+    };
     let guess = match _word_length(wordlist) {
         5 => _choice::<5>(wordlist, &args.clues, args.adversarial),
         6 => _choice::<6>(wordlist, &args.clues, args.adversarial),
