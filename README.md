@@ -2,6 +2,11 @@
 
 A bot that plays wordle games.
 
+## Try it
+Try it out by going to [webassembly.sh](https://webassembly.sh/) and entering `wordlebot`.
+
+![screenshot](docs/webassembly.sh_.png)
+
 ## How it works
 
 The bot implements a greedy strategy that seeks to learn as much information as possible with every guess.
